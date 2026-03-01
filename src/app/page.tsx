@@ -145,8 +145,9 @@ export default function Home() {
     setReadOnly(true);
     setSelectedFile(null);
     setIsEditing(false);
+    const fileCount = src.type === "files" ? src.files.size : 0;
     showToast(
-      `Diretório "${src.name}" aberto em modo leitura (${src.files.size} arquivo(s) .md)`,
+      `Diretório "${src.name}" aberto em modo leitura (${fileCount} arquivo(s) .md)`,
       "success",
       5000,
     );
