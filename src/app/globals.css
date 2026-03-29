@@ -949,3 +949,306 @@ body {
   margin-top: 8px;
   line-height: 1.4;
 }
+
+/* ---------- Scope Picker ---------- */
+.scope-picker-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 40px 36px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.scope-picker-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.scope-picker-icon .material-symbols-outlined {
+  font-size: 36px;
+  color: var(--accent);
+  font-variation-settings: "FILL" 1, "wght" 400;
+}
+
+.scope-picker-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.scope-picker-desc {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.scope-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.scope-option-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  text-align: left;
+  width: 100%;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+}
+
+.scope-option-card:hover {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.scope-option-card:active {
+  transform: translateY(0);
+}
+
+.scope-option-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-md);
+  background: var(--accent-muted);
+  flex-shrink: 0;
+}
+
+.scope-option-icon .material-symbols-outlined {
+  font-size: 22px;
+  color: var(--accent);
+}
+
+.scope-option-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.scope-option-content h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.scope-option-content p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.scope-option-content code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--bg-active);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.scope-option-arrow {
+  font-size: 18px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.scope-option-card:hover .scope-option-arrow {
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
+.scope-back-btn {
+  margin-top: 4px;
+}
+
+.scope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  background: var(--accent-muted);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.icon-xs {
+  font-size: 12px;
+}
+
+/* ---------- Tree View ---------- */
+.tree-view {
+  padding: 2px 0;
+}
+
+
+.tree-dir-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  border-radius: var(--radius-sm);
+  margin: 0 4px 1px;
+  user-select: none;
+}
+
+.tree-dir-item:hover {
+  background: var(--bg-hover);
+}
+
+.tree-dir-item.expanded {
+  color: var(--accent);
+}
+
+.tree-chevron {
+  font-size: 16px;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.tree-dir-item.expanded .tree-chevron {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+
+.tree-folder-icon {
+  font-size: 17px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+.tree-dir-item.expanded .tree-folder-icon,
+.tree-dir-item:hover .tree-folder-icon {
+  color: var(--accent);
+  font-variation-settings: "FILL" 1, "wght" 300;
+}
+
+.tree-dir-name {
+  flex: 1;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-dir-item.expanded .tree-dir-name,
+.tree-dir-item:hover .tree-dir-name {
+  color: var(--text-primary);
+}
+
+.tree-dir-count {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background: var(--bg-active);
+  padding: 0 5px;
+  border-radius: 8px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.tree-children {
+  animation: treeExpand 0.2s ease-out;
+}
+
+@keyframes treeExpand {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tree-file-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border-radius: var(--radius-sm);
+  margin: 0 4px 1px;
+  border: 1px solid transparent;
+}
+
+.tree-file-item:hover {
+  background: var(--bg-hover);
+}
+
+.tree-file-item.active {
+  background: var(--accent-muted);
+  border-color: var(--border-accent);
+}
+
+.tree-file-icon {
+  font-size: 16px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+.tree-file-item.active .tree-file-icon,
+.tree-file-item:hover .tree-file-icon {
+  color: var(--accent);
+}
+
+.tree-file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.tree-file-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 1px;
+}
+
+.tree-file-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}

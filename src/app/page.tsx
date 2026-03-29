@@ -10,6 +10,8 @@ import {
   filesFromInput,
   canWrite,
   listFiles,
+  listFilesRecursive,
+  buildDirectoryTree,
   readFile,
   saveFile,
   downloadFile,
@@ -18,6 +20,7 @@ import {
   type FileMetadata,
   type FileContent,
   type DuplicateGroup,
+  type DirectoryTreeNode,
 } from "./lib/fs-service";
 
 /* ─── Types ─── */
@@ -25,6 +28,8 @@ interface Toast {
   message: string;
   type: "success" | "error";
 }
+
+type ScanScope = "current" | "recursive";
 
 /* ─── Helpers ─── */
 function formatDate(iso: string): string {
@@ -38,6 +43,92 @@ function formatDate(iso: string): string {
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+/* ─── Tree View Component ─── */
+function TreeNode({
+  node,
+  selectedFile,
+  onSelectFile,
+  expandedDirs,
+  onToggleDir,
+  depth = 0,
+}: {
+  node: DirectoryTreeNode;
+  selectedFile: FileContent | null;
+  onSelectFile: (slug: string) => void;
+  expandedDirs: Set<string>;
+  onToggleDir: (path: string) => void;
+  depth?: number;
+}) {
+  return (
+    <>
+      {/* Render child directories */}
+      {node.children.map((child) => {
+        const isExpanded = expandedDirs.has(child.path);
+        const totalFiles = countFiles(child);
+        return (
+          <div key={child.path} className="tree-branch">
+            <div
+              className={`tree-dir-item${isExpanded ? " expanded" : ""}`}
+              style={{ paddingLeft: `${12 + depth * 16}px` }}
+              onClick={() => onToggleDir(child.path)}
+            >
+              <span className="material-symbols-outlined tree-chevron">
+                chevron_right
+              </span>
+              <span className="material-symbols-outlined tree-folder-icon">
+                {isExpanded ? "folder_open" : "folder"}
+              </span>
+              <span className="tree-dir-name">{child.name}</span>
+              <span className="tree-dir-count">{totalFiles}</span>
+            </div>
+            {isExpanded && (
+              <div className="tree-children">
+                <TreeNode
+                  node={child}
+                  selectedFile={selectedFile}
+                  onSelectFile={onSelectFile}
+                  expandedDirs={expandedDirs}
+                  onToggleDir={onToggleDir}
+                  depth={depth + 1}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Render files in this directory */}
+      {node.files.map((file) => (
+        <div
+          key={file.slug}
+          id={`file-${file.slug.replace(/\//g, "-")}`}
+          className={`tree-file-item${selectedFile?.slug === file.slug ? " active" : ""}`}
+          style={{ paddingLeft: `${12 + (depth + (node.path ? 0 : 0)) * 16 + (node.path ? 16 : 0)}px` }}
+          onClick={() => onSelectFile(file.slug)}
+        >
+          <span className="material-symbols-outlined tree-file-icon">description</span>
+          <div className="tree-file-info">
+            <div className="tree-file-name">{file.name}</div>
+            <div className="tree-file-meta">
+              <span>{formatDate(file.modifiedAt)}</span>
+              <span>·</span>
+              <span>{formatSize(file.size)}</span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function countFiles(node: DirectoryTreeNode): number {
+  let count = node.files.length;
+  for (const child of node.children) {
+    count += countFiles(child);
+  }
+  return count;
 }
 
 /* ─── Main Page ─── */
@@ -60,17 +151,33 @@ export default function Home() {
   const [source, setSource] = useState<DirectorySource | null>(null);
   const [readOnly, setReadOnly] = useState(false);
 
+  /* ─── Scan Scope ─── */
+  const [scanScope, setScanScope] = useState<ScanScope | null>(null);
+  const [directoryTree, setDirectoryTree] = useState<DirectoryTreeNode | null>(null);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+
   /* ─── Data Loading ─── */
-  const loadData = useCallback(async (src: DirectorySource) => {
+  const loadData = useCallback(async (src: DirectorySource, scope: ScanScope) => {
     setLoading(true);
     try {
+      const listFn = scope === "recursive" ? listFilesRecursive : listFiles;
       const [fileList, groups] = await Promise.all([
-        listFiles(src),
+        listFn(src),
         detectDuplicates(src),
       ]);
       setFiles(fileList);
       setFilteredFiles(fileList);
       setDuplicates(groups);
+
+      if (scope === "recursive") {
+        const tree = buildDirectoryTree(fileList, src.name);
+        setDirectoryTree(tree);
+        // Auto-expand root-level directories
+        const rootPaths = new Set(tree.children.map((c) => c.path));
+        setExpandedDirs(rootPaths);
+      } else {
+        setDirectoryTree(null);
+      }
     } catch {
       showToast("Erro ao carregar arquivos", "error");
     } finally {
@@ -102,7 +209,7 @@ export default function Home() {
         setSelectedFile({ ...selectedFile, content: editContent });
         setIsEditing(false);
         showToast("Arquivo salvo com sucesso", "success");
-        loadData(source);
+        if (scanScope) loadData(source, scanScope);
       } catch {
         showToast("Erro ao salvar. Tentando download...", "error");
         downloadFile(selectedFile.slug, editContent);
@@ -113,7 +220,7 @@ export default function Home() {
       setIsEditing(false);
       showToast("Arquivo baixado (modo somente leitura)", "success");
     }
-  }, [selectedFile, editContent, source, loadData]);
+  }, [selectedFile, editContent, source, scanScope, loadData]);
 
   /* ─── Directory Selection ─── */
   const openDirectory = useCallback(async () => {
@@ -123,12 +230,13 @@ export default function Home() {
       setReadOnly(!canWrite(src));
       setSelectedFile(null);
       setIsEditing(false);
+      setScanScope(null);
+      setDirectoryTree(null);
       showToast(`Diretório "${src.name}" aberto`, "success");
     } catch (err) {
       const error = err as Error;
       if (error.name === "AbortError") return;
       if (error.message === "BLOCKED_DIRECTORY") {
-        // Trigger the fallback file input
         fileInputRef.current?.click();
       } else {
         showToast("Erro ao selecionar diretório", "error");
@@ -145,14 +253,14 @@ export default function Home() {
     setReadOnly(true);
     setSelectedFile(null);
     setIsEditing(false);
+    setScanScope(null);
+    setDirectoryTree(null);
     const fileCount = src.type === "files" ? src.files.size : 0;
     showToast(
       `Diretório "${src.name}" aberto em modo leitura (${fileCount} arquivo(s) .md)`,
       "success",
       5000,
     );
-
-    // Reset input so the same folder can be selected again
     e.target.value = "";
   }, []);
 
@@ -164,6 +272,37 @@ export default function Home() {
     setFilteredFiles([]);
     setDuplicates([]);
     setReadOnly(false);
+    setScanScope(null);
+    setDirectoryTree(null);
+    setExpandedDirs(new Set());
+  }, []);
+
+  const reloadFiles = useCallback(() => {
+    if (source && scanScope) {
+      if (source.type === "handle") {
+        loadData(source, scanScope);
+        showToast("Arquivos recarregados", "success");
+      } else {
+        showToast("Recarregamento automático apenas para diretórios nativos", "error");
+      }
+    }
+  }, [source, scanScope, loadData]);
+
+  const selectScope = useCallback((scope: ScanScope) => {
+    setScanScope(scope);
+  }, []);
+
+  /* ─── Toggle tree directories ─── */
+  const toggleDir = useCallback((path: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
   }, []);
 
   /* ─── Search ─── */
@@ -176,6 +315,11 @@ export default function Home() {
       searchTimeoutRef.current = setTimeout(() => {
         if (!query.trim()) {
           setFilteredFiles(files);
+          // Rebuild tree if in recursive mode
+          if (scanScope === "recursive" && source) {
+            const tree = buildDirectoryTree(files, source.name);
+            setDirectoryTree(tree);
+          }
           return;
         }
         const q = query.toLowerCase();
@@ -186,9 +330,22 @@ export default function Home() {
             f.excerpt.toLowerCase().includes(q)
         );
         setFilteredFiles(filtered);
+        // Rebuild tree with filtered results
+        if (scanScope === "recursive" && source) {
+          const tree = buildDirectoryTree(filtered, source.name);
+          setDirectoryTree(tree);
+          // Expand all directories to show search results
+          const allPaths = new Set<string>();
+          function collectPaths(node: DirectoryTreeNode) {
+            if (node.path) allPaths.add(node.path);
+            node.children.forEach(collectPaths);
+          }
+          collectPaths(tree);
+          setExpandedDirs(allPaths);
+        }
       }, 300);
     },
-    [files]
+    [files, scanScope, source]
   );
 
   /* ─── Toast ─── */
@@ -199,8 +356,8 @@ export default function Home() {
 
   /* ─── Effects ─── */
   useEffect(() => {
-    if (source) loadData(source);
-  }, [source, loadData]);
+    if (source && scanScope) loadData(source, scanScope);
+  }, [source, scanScope, loadData]);
 
   /* ─── Hidden file input for fallback ─── */
   const hiddenInput = (
@@ -261,6 +418,76 @@ export default function Home() {
     );
   }
 
+  /* ─── Scope Selection Screen ─── */
+  if (!scanScope) {
+    return (
+      <div className="dir-picker-screen">
+        {hiddenInput}
+        <div className="scope-picker-card">
+          <div className="scope-picker-header">
+            <div className="scope-picker-icon">
+              <span className="material-symbols-outlined">folder_open</span>
+            </div>
+            <h2 className="scope-picker-title">{source.name}</h2>
+            <p className="scope-picker-desc">
+              Como deseja listar os arquivos Markdown?
+            </p>
+          </div>
+
+          <div className="scope-options">
+            <button
+              id="btn-scope-current"
+              className="scope-option-card"
+              onClick={() => selectScope("current")}
+            >
+              <div className="scope-option-icon">
+                <span className="material-symbols-outlined">folder</span>
+              </div>
+              <div className="scope-option-content">
+                <h3>Diretório Atual</h3>
+                <p>Listar apenas os arquivos <code>.md</code> na raiz do diretório selecionado.</p>
+              </div>
+              <span className="material-symbols-outlined scope-option-arrow">arrow_forward</span>
+            </button>
+
+            <button
+              id="btn-scope-recursive"
+              className="scope-option-card"
+              onClick={() => selectScope("recursive")}
+            >
+              <div className="scope-option-icon">
+                <span className="material-symbols-outlined">account_tree</span>
+              </div>
+              <div className="scope-option-content">
+                <h3>Incluir Subdiretórios</h3>
+                <p>Listar todos os arquivos <code>.md</code> do diretório e seus subdiretórios em árvore.</p>
+              </div>
+              <span className="material-symbols-outlined scope-option-arrow">arrow_forward</span>
+            </button>
+          </div>
+
+          <button
+            id="btn-scope-back"
+            className="btn scope-back-btn"
+            onClick={changeDir}
+          >
+            <span className="material-symbols-outlined">arrow_back</span>
+            Escolher outro diretório
+          </button>
+        </div>
+
+        {toast && (
+          <div className={`toast ${toast.type}`}>
+            <span className="material-symbols-outlined">
+              {toast.type === "success" ? "check_circle" : "error"}
+            </span>
+            {toast.message}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   /* ─── Main App ─── */
   return (
     <div className={`app-layout${showDuplicates ? " with-panel" : ""}`}>
@@ -289,8 +516,22 @@ export default function Home() {
         <div className="sidebar-toolbar">
           <span className="file-count">
             {filteredFiles.length} arquivo{filteredFiles.length !== 1 ? "s" : ""}
+            {scanScope === "recursive" && (
+              <span className="scope-badge">
+                <span className="material-symbols-outlined icon-xs">account_tree</span>
+                árvore
+              </span>
+            )}
           </span>
           <div className="toolbar-actions">
+            <button
+              id="btn-reload-files"
+              className="toolbar-btn"
+              onClick={reloadFiles}
+              title="Recarregar arquivos"
+            >
+              <span className="material-symbols-outlined icon-sm">refresh</span>
+            </button>
             <button
               id="btn-change-dir"
               className="toolbar-btn"
@@ -329,7 +570,19 @@ export default function Home() {
               </span>
               <p>Nenhum arquivo encontrado</p>
             </div>
+          ) : scanScope === "recursive" && directoryTree ? (
+            /* ─── Tree View ─── */
+            <div className="tree-view">
+              <TreeNode
+                node={directoryTree}
+                selectedFile={selectedFile}
+                onSelectFile={selectFile}
+                expandedDirs={expandedDirs}
+                onToggleDir={toggleDir}
+              />
+            </div>
           ) : (
+            /* ─── Flat View ─── */
             filteredFiles.map((file) => (
               <div
                 key={file.slug}

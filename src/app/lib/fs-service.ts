@@ -30,6 +30,15 @@ export interface FileMetadata {
   size: number;
   modifiedAt: string;
   excerpt: string;
+  /** Relative path from root directory (e.g. "subdir/file.md"). Empty for root-level files. */
+  relativePath: string;
+}
+
+export interface DirectoryTreeNode {
+  name: string;
+  path: string;
+  files: FileMetadata[];
+  children: DirectoryTreeNode[];
 }
 
 export interface FileContent {
@@ -103,7 +112,7 @@ export function canWrite(source: DirectorySource): boolean {
 /* ─── File Operations ─── */
 
 /**
- * Lists all .md files with metadata.
+ * Lists all .md files with metadata (current directory only).
  */
 export async function listFiles(source: DirectorySource): Promise<FileMetadata[]> {
   const files: FileMetadata[] = [];
@@ -113,12 +122,12 @@ export async function listFiles(source: DirectorySource): Promise<FileMetadata[]
       if (handle.kind !== "file" || !name.endsWith(".md")) continue;
       const file = await (handle as FileSystemFileHandle).getFile();
       const content = await file.text();
-      files.push(buildMetadata(name, file.size, file.lastModified, content));
+      files.push(buildMetadata(name, file.size, file.lastModified, content, ""));
     }
   } else {
     for (const [name, file] of source.files.entries()) {
       const content = await file.text();
-      files.push(buildMetadata(name, file.size, file.lastModified, content));
+      files.push(buildMetadata(name, file.size, file.lastModified, content, ""));
     }
   }
 
@@ -126,11 +135,92 @@ export async function listFiles(source: DirectorySource): Promise<FileMetadata[]
   return files;
 }
 
+/**
+ * Lists all .md files recursively, including subdirectories.
+ * Only works with "handle" source type.
+ */
+export async function listFilesRecursive(source: DirectorySource): Promise<FileMetadata[]> {
+  const files: FileMetadata[] = [];
+
+  if (source.type === "handle") {
+    await walkDirectory(source.handle, "", files);
+  } else {
+    // For file-input sources, use webkitRelativePath to reconstruct paths
+    for (const [, file] of source.files.entries()) {
+      const parts = file.webkitRelativePath.split("/");
+      // Remove root dir name, keep subpath
+      const relativePath = parts.slice(1).join("/");
+      const content = await file.text();
+      files.push(buildMetadata(file.name, file.size, file.lastModified, content, relativePath));
+    }
+  }
+
+  files.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
+  return files;
+}
+
+async function walkDirectory(
+  dirHandle: FileSystemDirectoryHandle,
+  prefix: string,
+  results: FileMetadata[],
+): Promise<void> {
+  for await (const [name, handle] of dirHandle.entries()) {
+    if (handle.kind === "file" && name.endsWith(".md")) {
+      const file = await (handle as FileSystemFileHandle).getFile();
+      const content = await file.text();
+      const relativePath = prefix ? `${prefix}/${name}` : name;
+      results.push(buildMetadata(name, file.size, file.lastModified, content, relativePath));
+    } else if (handle.kind === "directory") {
+      const subPrefix = prefix ? `${prefix}/${name}` : name;
+      await walkDirectory(handle as FileSystemDirectoryHandle, subPrefix, results);
+    }
+  }
+}
+
+/**
+ * Builds a directory tree from a flat list of files.
+ */
+export function buildDirectoryTree(files: FileMetadata[], rootName: string): DirectoryTreeNode {
+  const root: DirectoryTreeNode = { name: rootName, path: "", files: [], children: [] };
+
+  for (const file of files) {
+    const parts = file.relativePath.split("/");
+    // Last part is the filename
+    const dirParts = parts.slice(0, -1);
+
+    let current = root;
+    let currentPath = "";
+    for (const part of dirParts) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      let child = current.children.find((c) => c.name === part);
+      if (!child) {
+        child = { name: part, path: currentPath, files: [], children: [] };
+        current.children.push(child);
+      }
+      current = child;
+    }
+    current.files.push(file);
+  }
+
+  // Sort children and files
+  sortTree(root);
+  return root;
+}
+
+function sortTree(node: DirectoryTreeNode): void {
+  node.children.sort((a, b) => a.name.localeCompare(b.name));
+  node.files.sort((a, b) => a.name.localeCompare(b.name));
+  for (const child of node.children) {
+    sortTree(child);
+  }
+}
+
 function buildMetadata(
   filename: string,
   size: number,
   lastModified: number,
   content: string,
+  relativePath: string,
 ): FileMetadata {
   const lines = content.split("\n").filter((l) => l.trim());
   const title = lines.find((l) => l.startsWith("#"))?.replace(/^#+\s*/, "") || filename;
@@ -139,31 +229,54 @@ function buildMetadata(
     .slice(0, 2);
   const excerpt = excerptLines.join(" ").substring(0, 150);
 
+  // For recursive files, use relativePath (without extension) as slug to keep uniqueness
+  const slug = relativePath
+    ? relativePath.replace(/\.md$/, "")
+    : filename.replace(/\.md$/, "");
+
   return {
     name: title,
-    slug: filename.replace(/\.md$/, ""),
+    slug,
     size,
     modifiedAt: new Date(lastModified).toISOString(),
     excerpt,
+    relativePath,
   };
 }
 
 /**
  * Reads a single .md file by slug.
+ * Slug may contain path separators for files in subdirectories (e.g. "subdir/file").
  */
 export async function readFile(
   source: DirectorySource,
   slug: string,
 ): Promise<FileContent> {
-  const filename = `${slug}.md`;
+  const parts = `${slug}.md`.split("/");
 
   if (source.type === "handle") {
-    const fileHandle = await source.handle.getFileHandle(filename);
+    // Navigate through subdirectories if needed
+    let dirHandle = source.handle;
+    for (let i = 0; i < parts.length - 1; i++) {
+      dirHandle = await dirHandle.getDirectoryHandle(parts[i]);
+    }
+    const fileHandle = await dirHandle.getFileHandle(parts[parts.length - 1]);
     const file = await fileHandle.getFile();
     const content = await file.text();
     return { slug, content, size: file.size, modifiedAt: new Date(file.lastModified).toISOString() };
   } else {
-    const file = source.files.get(filename);
+    // For file-input, try direct match first, then search by relativePath
+    const filename = parts[parts.length - 1];
+    let file = source.files.get(filename);
+    if (!file) {
+      // Search through all files matching the relative path
+      for (const [, f] of source.files.entries()) {
+        if (f.webkitRelativePath.endsWith(`/${slug}.md`)) {
+          file = f;
+          break;
+        }
+      }
+    }
     if (!file) throw new Error("File not found");
     const content = await file.text();
     return { slug, content, size: file.size, modifiedAt: new Date(file.lastModified).toISOString() };
